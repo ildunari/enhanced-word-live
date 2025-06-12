@@ -1,0 +1,41 @@
+{
+  "mcpServers": {
+    "enhanced-word-server": {
+      "command": "npx",
+      "args": ["enhanced-word-mcp-server"],
+      "env": {}
+    }
+  }
+}
+
+// Alternative installation methods:
+
+// Method 1: NPX (Recommended - no installation needed)
+{
+  "mcpServers": {
+    "enhanced-word-server": {
+      "command": "npx", 
+      "args": ["enhanced-word-mcp-server"]
+    }
+  }
+}
+
+// Method 2: Global installation
+{
+  "mcpServers": {
+    "enhanced-word-server": {
+      "command": "enhanced-word-mcp-server"
+    }
+  }
+}
+
+// Method 3: Local development
+{
+  "mcpServers": {
+    "enhanced-word-server": {
+      "command": "python",
+      "args": ["-m", "word_document_server.main"],
+      "cwd": "/path/to/kosta-enhanced-word-mcp-server"
+    }
+  }
+}

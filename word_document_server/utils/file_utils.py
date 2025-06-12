@@ -2,13 +2,13 @@
 File utility functions for Word Document Server.
 """
 import os
-from typing import Tuple, Optional
+from typing import Tuple, Optional, List
 import shutil
 
 
 def check_file_writeable(filepath: str) -> Tuple[bool, str]:
     """
-    Check if a file can be written to.
+    Check if a file can be written to, with special handling for Word documents.
     
     Args:
         filepath: Path to the file
@@ -16,6 +16,9 @@ def check_file_writeable(filepath: str) -> Tuple[bool, str]:
     Returns:
         Tuple of (is_writeable, error_message)
     """
+    import platform
+    import tempfile
+    
     # If file doesn't exist, check if directory is writeable
     if not os.path.exists(filepath):
         directory = os.path.dirname(filepath)
@@ -28,19 +31,76 @@ def check_file_writeable(filepath: str) -> Tuple[bool, str]:
             return False, f"Directory {directory} is not writeable"
         return True, ""
     
-    # If file exists, check if it's writeable
+    # Check basic file permissions
     if not os.access(filepath, os.W_OK):
         return False, f"File {filepath} is not writeable (permission denied)"
     
-    # Try to open the file for writing to see if it's locked
+    # Check for Word-specific lock files
+    if filepath.lower().endswith(('.docx', '.doc')):
+        directory = os.path.dirname(filepath)
+        filename = os.path.basename(filepath)
+        
+        # Check for temporary Word lock files
+        word_lock_patterns = [
+            f"~${filename}",  # Word lock file pattern
+            f".~lock.{filename}#",  # LibreOffice lock pattern
+            f"~WRL{filename[-4:]}.tmp"  # Another Word temp pattern
+        ]
+        
+        for lock_pattern in word_lock_patterns:
+            lock_file = os.path.join(directory, lock_pattern)
+            if os.path.exists(lock_file):
+                return False, f"Document appears to be open in Word (lock file: {lock_pattern})"
+    
+    # Try to open the file for writing with exclusive access
     try:
-        with open(filepath, 'a'):
-            pass
+        # Create a temporary backup to test exclusive access
+        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
+            temp_path = temp_file.name
+        
+        # Try to copy the file to temp location (tests read access)
+        try:
+            import shutil
+            shutil.copy2(filepath, temp_path)
+        except Exception as e:
+            os.unlink(temp_path) if os.path.exists(temp_path) else None
+            return False, f"Cannot read file {filepath}: {str(e)}"
+        
+        # Try to open original file for writing (tests write access and locks)
+        try:
+            # Use different approach based on platform
+            if platform.system() == "Windows":
+                # On Windows, try to open with exclusive access
+                import msvcrt
+                try:
+                    with open(filepath, 'r+b') as f:
+                        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+                        msvcrt.locking(f.fileno(), msvcrt.LK_UNLCK, 1)
+                except (OSError, IOError):
+                    os.unlink(temp_path) if os.path.exists(temp_path) else None
+                    return False, f"File {filepath} is locked (likely open in Word)"
+            else:
+                # On Unix-like systems, try to get an exclusive lock
+                import fcntl
+                try:
+                    with open(filepath, 'r+b') as f:
+                        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+                except (OSError, IOError):
+                    os.unlink(temp_path) if os.path.exists(temp_path) else None
+                    return False, f"File {filepath} is locked (likely open in Word)"
+        
+        except Exception as e:
+            os.unlink(temp_path) if os.path.exists(temp_path) else None
+            return False, f"File {filepath} is not writeable: {str(e)}"
+        
+        # Clean up temp file
+        os.unlink(temp_path) if os.path.exists(temp_path) else None
         return True, ""
-    except IOError as e:
-        return False, f"File {filepath} is not writeable: {str(e)}"
+        
     except Exception as e:
-        return False, f"Unknown error checking file permissions: {str(e)}"
+        return False, f"Error checking file permissions: {str(e)}"
+
 
 
 def create_document_copy(source_path: str, dest_path: Optional[str] = None) -> Tuple[bool, str, Optional[str]]:
@@ -83,3 +143,72 @@ def ensure_docx_extension(filename: str) -> str:
     if not filename.endswith('.docx'):
         return filename + '.docx'
     return filename
+
+def sanitize_file_path(filepath: str, allowed_extensions: List[str] = None) -> Tuple[bool, str, str]:
+    """
+    Sanitize file path to prevent path traversal attacks and ensure valid extensions.
+    
+    Args:
+        filepath: The file path to sanitize
+        allowed_extensions: List of allowed file extensions (e.g., ['.docx', '.doc'])
+        
+    Returns:
+        Tuple of (is_valid, sanitized_path, error_message)
+    """
+    import os.path
+    from pathlib import Path
+    
+    if not filepath or not isinstance(filepath, str):
+        return False, "", "Invalid file path provided"
+    
+    try:
+        # Convert to Path object for better handling
+        path = Path(filepath)
+        
+        # Check for path traversal attempts
+        if '..' in str(path) or str(path).startswith('/') or ':' in str(path):
+            # Allow absolute paths but check for traversal
+            resolved_path = path.resolve()
+            if '..' in str(resolved_path):
+                return False, "", "Path traversal detected in file path"
+        
+        # Check for dangerous characters
+        dangerous_chars = ['<', '>', '|', '*', '?', '"']
+        if any(char in str(path) for char in dangerous_chars):
+            return False, "", "Invalid characters in file path"
+        
+        # Validate extension if specified
+        if allowed_extensions:
+            file_ext = path.suffix.lower()
+            if file_ext not in [ext.lower() for ext in allowed_extensions]:
+                return False, "", f"Invalid file extension. Allowed: {', '.join(allowed_extensions)}"
+        
+        # Convert back to string and normalize
+        sanitized_path = str(path).replace('\\', '/')
+        
+        return True, sanitized_path, ""
+        
+    except Exception as e:
+        return False, "", f"Error sanitizing path: {str(e)}"
+
+
+def validate_docx_path(filepath: str) -> Tuple[bool, str, str]:
+    """
+    Validate and sanitize a Word document path.
+    
+    Args:
+        filepath: Path to validate
+        
+    Returns:
+        Tuple of (is_valid, sanitized_path, error_message)
+    """
+    # First sanitize the general path
+    is_valid, sanitized_path, error = sanitize_file_path(filepath, ['.docx', '.doc'])
+    
+    if not is_valid:
+        return False, "", error
+    
+    # Ensure .docx extension
+    sanitized_path = ensure_docx_extension(sanitized_path)
+    
+    return True, sanitized_path, ""

@@ -4,73 +4,30 @@ Extended document tools for Word Document Server.
 These tools provide enhanced document content extraction and search capabilities.
 """
 import os
-import json
 import subprocess
 import platform
 import shutil
-from typing import Dict, List, Optional, Any, Union, Tuple
+from typing import Optional
 from docx import Document
 
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension
-from word_document_server.utils.extended_document_utils import get_paragraph_text, find_text
+from word_document_server.utils.session_utils import resolve_document_path
 
 
-async def get_paragraph_text_from_document(filename: str, paragraph_index: int) -> str:
-    """Get text from a specific paragraph in a Word document.
-    
-    Args:
-        filename: Path to the Word document
-        paragraph_index: Index of the paragraph to retrieve (0-based)
-    """
-    filename = ensure_docx_extension(filename)
-    
-    if not os.path.exists(filename):
-        return f"Document {filename} does not exist"
-    
-
-    if paragraph_index < 0:
-        return "Invalid parameter: paragraph_index must be a non-negative integer"
-    
-    try:
-        result = get_paragraph_text(filename, paragraph_index)
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        return f"Failed to get paragraph text: {str(e)}"
-
-
-async def find_text_in_document(filename: str, text_to_find: str, match_case: bool = True, whole_word: bool = False) -> str:
-    """Find occurrences of specific text in a Word document.
-    
-    Args:
-        filename: Path to the Word document
-        text_to_find: Text to search for in the document
-        match_case: Whether to match case (True) or ignore case (False)
-        whole_word: Whether to match whole words only (True) or substrings (False)
-    """
-    filename = ensure_docx_extension(filename)
-    
-    if not os.path.exists(filename):
-        return f"Document {filename} does not exist"
-    
-    if not text_to_find:
-        return "Search text cannot be empty"
-    
-    try:
-        
-        result = find_text(filename, text_to_find, match_case, whole_word)
-        return json.dumps(result, indent=2)
-    except Exception as e:
-        return f"Failed to search for text: {str(e)}"
-
-
-async def convert_to_pdf(filename: str, output_filename: Optional[str] = None) -> str:
+async def convert_to_pdf(document_id: str = None, filename: str = None, output_filename: Optional[str] = None) -> str:
     """Convert a Word document to PDF format.
     
     Args:
-        filename: Path to the Word document
+        document_id (str, optional): Session document identifier (preferred)
+        filename (str, optional): Path to the Word document
         output_filename: Optional path for the output PDF. If not provided, 
                          will use the same name with .pdf extension
     """
+    # Resolve document path from session or filename
+    filename, error_msg = resolve_document_path(document_id, filename)
+    if error_msg:
+        return error_msg
+    
     filename = ensure_docx_extension(filename)
     
     if not os.path.exists(filename):

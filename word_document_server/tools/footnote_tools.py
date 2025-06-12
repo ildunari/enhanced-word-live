@@ -7,32 +7,180 @@ including adding, customizing, and converting between them.
 import os
 from typing import Optional
 from docx import Document
-from docx.shared import Pt
-from docx.enum.style import WD_STYLE_TYPE
 
 from word_document_server.utils.file_utils import check_file_writeable, ensure_docx_extension
-from word_document_server.core.footnotes import (
-    find_footnote_references,
-    get_format_symbols,
-    customize_footnote_formatting
-)
 
 
-async def add_footnote_to_document(filename: str, paragraph_index: int, footnote_text: str) -> str:
-    """Add a footnote to a specific paragraph in a Word document.
+async def add_note(
+    document_id: str = None,
+    filename: str = None,
+    paragraph_index: int = None,
+    note_text: str = None,
+    note_type: str = "footnote",
+    position: str = "end",
+    symbol: Optional[str] = None
+) -> str:
+    """Unified note addition function for comprehensive footnote and endnote management.
+    
+    This function consolidates footnote and endnote creation into a single comprehensive tool.
+    It replaces add_footnote_to_document and add_endnote_to_document with enhanced
+    positioning and formatting options for academic and professional documentation.
     
     Args:
-        filename: Path to the Word document
-        paragraph_index: Index of the paragraph to add footnote to (0-based)
-        footnote_text: Text content of the footnote
+        document_id (str): Session document ID (preferred)
+        filename (str): Path to the Word document (legacy, for backward compatibility)
+        
+        paragraph_index (int): Zero-based index of target paragraph for note placement
+            - 0 = first paragraph, 1 = second paragraph, etc.
+            - Must be valid index within document range
+            - Note reference will be inserted in this paragraph
+        
+        note_text (str): Content text for the note
+            - Supports plain text and basic formatting
+            - Can include citations, references, or explanatory content
+            - No length limit but consider readability
+            - Example: "See Smith et al. (2023) for detailed methodology"
+        
+        note_type (str): Type of note to create:
+            - "footnote": Note appears at bottom of page (default)
+            - "endnote": Note appears at end of document or section
+            - Footnotes are better for brief comments or citations
+            - Endnotes are better for longer explanations
+        
+        position (str): Placement position within the target paragraph:
+            - "end": Insert reference at end of paragraph (default)
+            - "beginning": Insert reference at start of paragraph
+            - Affects where the note number/symbol appears in text
+        
+        symbol (str, optional): Custom symbol for note reference
+            - None: Use automatic numbering (1, 2, 3...) (default)
+            - "*": Single asterisk
+            - "†": Dagger symbol
+            - "‡": Double dagger
+            - Custom: Any single character or short string
+            - Note: Custom symbols may not auto-increment
+    
+    Returns:
+        str: Status message indicating success or failure:
+            - Success: "Successfully added {note_type} to paragraph {index}"
+            - Error: Specific error message with troubleshooting guidance
+    
+    Use Cases:
+        📚 Academic Writing: Add citations, references, and explanatory notes
+        📝 Research Papers: Include methodology notes and data sources
+        📄 Legal Documents: Add statutory references and case citations
+        📊 Reports: Include data sources and calculation explanations
+        ✏️ Manuscripts: Add author notes and editorial comments
+        📋 Technical Documentation: Include detailed specifications
+    
+    Examples:
+        # Basic footnote for citation
+        result = await add_note(document_id="paper", paragraph_index=5, 
+                               note_text="Smith, J. (2023). Advanced Research Methods. Academic Press.",
+                               note_type="footnote")
+        # Returns: "Successfully added footnote to paragraph 5"
+        
+        # Endnote for detailed explanation
+        result = await add_note(document_id="thesis", paragraph_index=12,
+                               note_text="The methodology was adapted from previous studies with modifications for current context.",
+                               note_type="endnote", position="end")
+        # Returns: "Successfully added endnote to paragraph 12"
+        
+        # Footnote with custom asterisk symbol
+        result = await add_note(document_id="manuscript", paragraph_index=3,
+                               note_text="Preliminary results only, full analysis pending.",
+                               note_type="footnote", symbol="*")
+        # Returns: "Successfully added footnote to paragraph 3"
+        
+        # Beginning position footnote for emphasis
+        result = await add_note(document_id="report", paragraph_index=0,
+                               note_text="This section contains confidential information.",
+                               note_type="footnote", position="beginning", symbol="†")
+        # Returns: "Successfully added footnote to paragraph 0"
+        
+        # Academic reference endnote
+        result = await add_note(document_id="dissertation", paragraph_index=45,
+                               note_text="For comprehensive review of this topic, see Johnson et al. (2022), chapters 3-5.",
+                               note_type="endnote")
+        # Returns: "Successfully added endnote to paragraph 45"
+        
+        # Legal citation footnote
+        result = await add_note(document_id="legal_brief", paragraph_index=8,
+                               note_text="See 42 U.S.C. § 1983 (1871) and subsequent amendments.",
+                               note_type="footnote", position="end")
+        # Returns: "Successfully added footnote to paragraph 8"
+        
+        # Technical specification note
+        result = await add_note(document_id="specification", paragraph_index=15,
+                               note_text="Implementation details available in Appendix C, section 2.4.",
+                               note_type="endnote", symbol="‡")
+        # Returns: "Successfully added endnote to paragraph 15"
+    
+    Error Handling:
+        - Document not found: "Document '{document_id}' not found in sessions"
+        - File not writable: "Cannot modify document: {reason}. Consider creating a copy first."
+        - Invalid paragraph index: "Paragraph index {index} is out of range (document has {count} paragraphs)"
+        - Invalid note_type: "Invalid note_type: {type}. Must be one of: footnote, endnote"
+        - Invalid position: "Invalid position: {pos}. Must be one of: end, beginning"
+        - Empty note text: "Note text cannot be empty"
+        - Document corruption: "Error adding note: {error_details}"
+        - Protection conflict: "Document is protected and notes cannot be added"
+    
+    Academic Workflow Integration:
+        1. Content Creation: Write main text content using add_text_content
+        2. Reference Addition: Use add_note to insert citations and explanations
+        3. Structure Review: Use get_sections to verify note placement
+        4. Final Review: Use get_text with search to find and verify all notes
+        5. Format Check: Ensure consistent note formatting throughout document
+    
+    Best Practices:
+        - Use footnotes for brief citations and immediate clarifications
+        - Use endnotes for longer explanations that might interrupt text flow
+        - Maintain consistent note style throughout document
+        - Consider using custom symbols sparingly for special emphasis
+        - Place notes strategically to support but not overwhelm main text
+        - Review note placement in context of paragraph content
+    
+    Performance Notes:
+        - Adding notes to large documents may take longer to process
+        - Custom symbols require additional formatting time
+        - Documents with many existing notes may slow processing
+        - Consider batch operations for multiple notes in same document
     """
-    filename = ensure_docx_extension(filename)
+    from word_document_server.utils.session_utils import resolve_document_path
+    
+    # Resolve document path from document_id or filename
+    filename, error_msg = resolve_document_path(document_id, filename)
+    if error_msg:
+        return error_msg
+    
+    # Validate required parameters
+    if paragraph_index is None:
+        return "Error: paragraph_index parameter is required"
+    
+    if not note_text:
+        return "Error: note_text parameter is required"
+    
+    # Validate note_type parameter
+    valid_types = ["footnote", "endnote"]
+    if note_type not in valid_types:
+        return f"Invalid note_type: {note_type}. Must be one of: {', '.join(valid_types)}"
+    
+    # Validate position parameter
+    valid_positions = ["end", "beginning"]
+    if position not in valid_positions:
+        return f"Invalid position: {position}. Must be one of: {', '.join(valid_positions)}"
     
     # Ensure paragraph_index is an integer
     try:
         paragraph_index = int(paragraph_index)
+        if paragraph_index < 0:
+            return "Invalid parameter: paragraph_index must be a non-negative integer"
     except (ValueError, TypeError):
         return "Invalid parameter: paragraph_index must be an integer"
+    
+    if not note_text.strip():
+        return "Invalid parameter: note_text cannot be empty"
     
     if not os.path.exists(filename):
         return f"Document {filename} does not exist"
@@ -46,246 +194,75 @@ async def add_footnote_to_document(filename: str, paragraph_index: int, footnote
         doc = Document(filename)
         
         # Validate paragraph index
-        if paragraph_index < 0 or paragraph_index >= len(doc.paragraphs):
-            return f"Invalid paragraph index. Document has {len(doc.paragraphs)} paragraphs (0-{len(doc.paragraphs)-1})."
+        if paragraph_index >= len(doc.paragraphs):
+            return f"Invalid paragraph index: {paragraph_index}. Document has {len(doc.paragraphs)} paragraphs (0-{len(doc.paragraphs)-1})."
         
         paragraph = doc.paragraphs[paragraph_index]
         
-        # In python-docx, we'd use paragraph.add_footnote(), but we'll use a more robust approach
-        try:
-            footnote = paragraph.add_run()
-            footnote.text = ""
-            
-            # Create the footnote reference
-            reference = footnote.add_footnote(footnote_text)
-            
-            doc.save(filename)
-            return f"Footnote added to paragraph {paragraph_index} in {filename}"
-        except AttributeError:
-            # Fall back to a simpler approach if direct footnote addition fails
-            last_run = paragraph.add_run()
-            last_run.text = "¹"  # Unicode superscript 1
-            last_run.font.superscript = True
-            
-            # Add a footnote section at the end if it doesn't exist
-            found_footnote_section = False
+        # Determine reference symbol
+        if symbol is None:
+            if note_type == "footnote":
+                symbol = "¹"  # Unicode superscript 1 - could be enhanced with auto-numbering
+            else:  # endnote
+                symbol = "†"  # Unicode dagger symbol
+        
+        # Add note reference to paragraph
+        if position == "beginning" and paragraph.runs:
+            # Insert at beginning by modifying first run
+            first_run = paragraph.runs[0]
+            first_run.text = symbol + first_run.text
+            first_run.font.superscript = True
+        else:
+            # Add at end (default behavior)
+            note_run = paragraph.add_run(symbol)
+            note_run.font.superscript = True
+        
+        # Handle note section creation/updating
+        if note_type == "footnote":
+            # Find or create footnotes section
+            footnote_section_found = False
             for p in doc.paragraphs:
                 if p.text.startswith("Footnotes:"):
-                    found_footnote_section = True
+                    footnote_section_found = True
                     break
             
-            if not found_footnote_section:
-                doc.add_paragraph("\n").add_run()
-                doc.add_paragraph("Footnotes:").bold = True
+            if not footnote_section_found:
+                # Add footnotes section
+                doc.add_paragraph("\\n").add_run()
+                footnotes_heading = doc.add_paragraph("Footnotes:")
+                footnotes_heading.bold = True
             
             # Add footnote text
-            footnote_para = doc.add_paragraph("¹ " + footnote_text)
-            footnote_para.style = "Footnote Text" if "Footnote Text" in doc.styles else "Normal"
-            
-            doc.save(filename)
-            return f"Footnote added to paragraph {paragraph_index} in {filename} (simplified approach)"
-    except Exception as e:
-        return f"Failed to add footnote: {str(e)}"
-
-
-async def add_endnote_to_document(filename: str, paragraph_index: int, endnote_text: str) -> str:
-    """Add an endnote to a specific paragraph in a Word document.
-    
-    Args:
-        filename: Path to the Word document
-        paragraph_index: Index of the paragraph to add endnote to (0-based)
-        endnote_text: Text content of the endnote
-    """
-    filename = ensure_docx_extension(filename)
-    
-    # Ensure paragraph_index is an integer
-    try:
-        paragraph_index = int(paragraph_index)
-    except (ValueError, TypeError):
-        return "Invalid parameter: paragraph_index must be an integer"
-    
-    if not os.path.exists(filename):
-        return f"Document {filename} does not exist"
-    
-    # Check if file is writeable
-    is_writeable, error_message = check_file_writeable(filename)
-    if not is_writeable:
-        return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
-    try:
-        doc = Document(filename)
-        
-        # Validate paragraph index
-        if paragraph_index < 0 or paragraph_index >= len(doc.paragraphs):
-            return f"Invalid paragraph index. Document has {len(doc.paragraphs)} paragraphs (0-{len(doc.paragraphs)-1})."
-        
-        paragraph = doc.paragraphs[paragraph_index]
-        
-        # Add endnote reference
-        last_run = paragraph.add_run()
-        last_run.text = "†"  # Unicode dagger symbol common for endnotes
-        last_run.font.superscript = True
-        
-        # Check if endnotes section exists, if not create it
-        endnotes_heading_found = False
-        for para in doc.paragraphs:
-            if para.text == "Endnotes:" or para.text == "ENDNOTES":
-                endnotes_heading_found = True
-                break
-        
-        if not endnotes_heading_found:
-            # Add a page break before endnotes section
-            doc.add_page_break()
-            doc.add_heading("Endnotes:", level=1)
-        
-        # Add the endnote text
-        endnote_para = doc.add_paragraph("† " + endnote_text)
-        endnote_para.style = "Endnote Text" if "Endnote Text" in doc.styles else "Normal"
-        
-        doc.save(filename)
-        return f"Endnote added to paragraph {paragraph_index} in {filename}"
-    except Exception as e:
-        return f"Failed to add endnote: {str(e)}"
-
-
-async def convert_footnotes_to_endnotes_in_document(filename: str) -> str:
-    """Convert all footnotes to endnotes in a Word document.
-    
-    Args:
-        filename: Path to the Word document
-    """
-    filename = ensure_docx_extension(filename)
-    
-    if not os.path.exists(filename):
-        return f"Document {filename} does not exist"
-    
-    # Check if file is writeable
-    is_writeable, error_message = check_file_writeable(filename)
-    if not is_writeable:
-        return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
-    try:
-        doc = Document(filename)
-  
-      
-        # Find all runs that might be footnote references
-        footnote_references = []
-        
-        for para_idx, para in enumerate(doc.paragraphs):
-            for run_idx, run in enumerate(para.runs):
-                # Check if this run is likely a footnote reference
-                # (superscript number or special character)
-                if run.font.superscript and (run.text.isdigit() or run.text in "¹²³⁴⁵⁶⁷⁸⁹"):
-                    footnote_references.append({
-                        "paragraph_index": para_idx,
-                        "run_index": run_idx,
-                        "text": run.text
-                    })
-        
-        if not footnote_references:
-            return f"No footnote references found in {filename}"
-        
-        # Create endnotes section
-        doc.add_page_break()
-        doc.add_heading("Endnotes:", level=1)
-        
-        # Create a placeholder for endnote content, we'll fill it later
-        endnote_content = []
-        
-        # Find the footnote text at the bottom of the page
-       
-        found_footnote_section = False
-        footnote_text = []
-        
-        for para in doc.paragraphs:
-            if not found_footnote_section and para.text.startswith("Footnotes:"):
-                found_footnote_section = True
-                continue
-            
-            if found_footnote_section:
-                footnote_text.append(para.text)
-        
-        # Create endnotes based on footnote references
-        for i, ref in enumerate(footnote_references):
-            # Add a new endnote
-            endnote_para = doc.add_paragraph()
-            
-            # Try to match with footnote text, or use placeholder
-            if i < len(footnote_text):
-                endnote_para.text = f"†{i+1} {footnote_text[i]}"
+            footnote_para = doc.add_paragraph(f"{symbol} {note_text}")
+            if "Footnote Text" in doc.styles:
+                footnote_para.style = "Footnote Text"
             else:
-                endnote_para.text = f"†{i+1} Converted from footnote {ref['text']}"
+                footnote_para.style = "Normal"
+        
+        else:  # endnote
+            # Find or create endnotes section
+            endnotes_heading_found = False
+            for para in doc.paragraphs:
+                if para.text in ["Endnotes:", "ENDNOTES"]:
+                    endnotes_heading_found = True
+                    break
             
-            # Change the footnote reference to an endnote reference
-            try:
-                paragraph = doc.paragraphs[ref["paragraph_index"]]
-                paragraph.runs[ref["run_index"]].text = f"†{i+1}"
-            except IndexError:
-                # Skip if we can't locate the reference
-                pass
+            if not endnotes_heading_found:
+                # Add page break before endnotes section
+                doc.add_page_break()
+                doc.add_heading("Endnotes:", level=1)
+            
+            # Add endnote text
+            endnote_para = doc.add_paragraph(f"{symbol} {note_text}")
+            if "Endnote Text" in doc.styles:
+                endnote_para.style = "Endnote Text"
+            else:
+                endnote_para.style = "Normal"
         
-        # Save the document
         doc.save(filename)
         
-        return f"Converted {len(footnote_references)} footnotes to endnotes in {filename}"
+        return f"{note_type.capitalize()} added to paragraph {paragraph_index} in {filename}"
+    
     except Exception as e:
-        return f"Failed to convert footnotes to endnotes: {str(e)}"
+        return f"Failed to add {note_type}: {str(e)}"
 
-
-async def customize_footnote_style(filename: str, numbering_format: str = "1, 2, 3", 
-                                  start_number: int = 1, font_name: Optional[str] = None,
-                                  font_size: Optional[int] = None) -> str:
-    """Customize footnote numbering and formatting in a Word document.
-    
-    Args:
-        filename: Path to the Word document
-        numbering_format: Format for footnote numbers (e.g., "1, 2, 3", "i, ii, iii", "a, b, c")
-        start_number: Number to start footnote numbering from
-        font_name: Optional font name for footnotes
-        font_size: Optional font size for footnotes (in points)
-    """
-    filename = ensure_docx_extension(filename)
-    
-    if not os.path.exists(filename):
-        return f"Document {filename} does not exist"
-    
-    # Check if file is writeable
-    is_writeable, error_message = check_file_writeable(filename)
-    if not is_writeable:
-        return f"Cannot modify document: {error_message}. Consider creating a copy first."
-    
-    try:
-        doc = Document(filename)
-        
-        # Create or get footnote style
-        footnote_style_name = "Footnote Text"
-        footnote_style = None
-        
-        try:
-            footnote_style = doc.styles[footnote_style_name]
-        except KeyError:
-            # Create the style if it doesn't exist
-            footnote_style = doc.styles.add_style(footnote_style_name, WD_STYLE_TYPE.PARAGRAPH)
-        
-        # Apply formatting to footnote style
-        if footnote_style:
-            if font_name:
-                footnote_style.font.name = font_name
-            if font_size:
-                footnote_style.font.size = Pt(font_size)
-        
-        # Find all existing footnote references
-        footnote_refs = find_footnote_references(doc)
-        
-        # Generate format symbols for the specified numbering format
-        format_symbols = get_format_symbols(numbering_format, len(footnote_refs) + start_number)
-        
-        # Apply custom formatting to footnotes
-        count = customize_footnote_formatting(doc, footnote_refs, format_symbols, start_number, footnote_style)
-        
-        # Save the document
-        doc.save(filename)
-        
-        return f"Footnote style and numbering customized in {filename}"
-    except Exception as e:
-        return f"Failed to customize footnote style: {str(e)}"

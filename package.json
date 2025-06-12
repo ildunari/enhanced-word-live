@@ -1,0 +1,64 @@
+{
+  "name": "enhanced-word-mcp-server",
+  "version": "2.5.0",
+  "description": "Enhanced Word MCP server with 24 session-enabled tools for comprehensive Word document operations. Features complete session management migration, unified tool interfaces, regex search, and advanced document collaboration with backward compatibility.",
+  "main": "index.js",
+  "bin": {
+    "enhanced-word-mcp-server": "./bin/enhanced-word-mcp-server.js"
+  },
+  "scripts": {
+    "start": "python3 -m word_document_server.main",
+    "test": "python3 test_enhanced_features.py",
+    "install-deps": "pip install -r requirements.txt"
+  },
+  "keywords": [
+    "mcp",
+    "word",
+    "document", 
+    "academic",
+    "research",
+    "collaboration",
+    "thesis",
+    "microsoft-word",
+    "docx",
+    "formatting",
+    "review",
+    "comments",
+    "track-changes",
+    "section-management"
+  ],
+  "author": {
+    "name": "Kosta Vučković",
+    "email": "kosta@brown.edu"
+  },
+  "contributors": [
+    {
+      "name": "GongRzhe",
+      "email": "gongrzhe@gmail.com"
+    }
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kosta/kosta-enhanced-word-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kosta/kosta-enhanced-word-mcp-server/issues"
+  },
+  "homepage": "https://github.com/kosta/kosta-enhanced-word-mcp-server#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "word_document_server/",
+    "office_word_mcp_server/",
+    "requirements.txt",
+    "README_ENHANCED.md",
+    "claude_desktop_config.json",
+    "bin/",
+    "index.js"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}
