@@ -5,23 +5,50 @@ Provides in-memory storage and management of open Word documents with simple IDs
 eliminating the need to pass full file paths for every operation.
 """
 import os
+import asyncio
+import json
+import uuid
 from typing import Dict, Optional, List, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from docx import Document
 from word_document_server.utils.file_utils import ensure_docx_extension
 
 
 @dataclass
 class DocumentHandle:
-    """Container for an open Word document with metadata."""
+    """Container for an open Word document with metadata and optional live connection."""
     document_id: str
     file_path: str
     document: Document
     metadata: Dict[str, Any]
+    websocket_connection: Optional[object] = None
+    pending_requests: Dict[str, asyncio.Future] = field(default_factory=dict)
     
     def __post_init__(self):
         """Ensure file path has .docx extension."""
         self.file_path = ensure_docx_extension(self.file_path)
+    
+    @property
+    def is_live(self) -> bool:
+        """Check if this document has an active live WebSocket connection."""
+        return self.websocket_connection is not None
+    
+    def register_websocket(self, websocket: object):
+        """Register a WebSocket connection for live editing."""
+        self.websocket_connection = websocket
+        print(f"[DocumentHandle] Registered live connection for {self.document_id}")
+    
+    def unregister_websocket(self):
+        """Remove the WebSocket connection."""
+        if self.websocket_connection:
+            print(f"[DocumentHandle] Unregistered live connection for {self.document_id}")
+            self.websocket_connection = None
+            # Cancel any pending requests
+            for future in self.pending_requests.values():
+                if not future.done():
+                    future.cancel()
+            self.pending_requests.clear()
+
 
 
 class DocumentSessionManager:
@@ -233,7 +260,148 @@ class DocumentSessionManager:
         self._documents.clear()
         self._active_document_id = None
         return f"Closed {count} documents"
-
+    
+    # Live Session Management Methods
+    
+    def register_live_connection(self, document_id: str, websocket: object) -> str:
+        """
+        Register a WebSocket connection for live editing of a document.
+        
+        Args:
+            document_id: ID of the document to make live
+            websocket: WebSocket connection object
+            
+        Returns:
+            Success/error message string
+        """
+        try:
+            handle = self.get_document(document_id)
+            if not handle:
+                return f"Error: Document ID '{document_id}' not found in session"
+            
+            handle.register_websocket(websocket)
+            return f"Successfully registered live connection for document '{document_id}'"
+            
+        except Exception as e:
+            return f"Error registering live connection: {str(e)}"
+        
+    def unregister_live_connection(self, document_id: str) -> str:
+        """
+        Remove WebSocket connection from a document.
+        
+        Args:
+            document_id: ID of the document to disconnect
+            
+        Returns:
+            Success/error message string
+        """
+        try:
+            handle = self.get_document(document_id)
+            if not handle:
+                return f"Error: Document ID '{document_id}' not found in session"
+            
+            handle.unregister_websocket()
+            return f"Successfully unregistered live connection for document '{document_id}'"
+            
+        except Exception as e:
+            return f"Error unregistering live connection: {str(e)}"
+        
+    def find_document_by_websocket(self, websocket: object) -> Optional[str]:
+        """
+        Find the document ID associated with a WebSocket connection.
+        
+        Args:
+            websocket: WebSocket connection to search for
+            
+        Returns:
+            Document ID if found, None otherwise
+        """
+        for doc_id, handle in self._documents.items():
+            if handle.websocket_connection == websocket:
+                return doc_id
+        return None
+    
+    def is_document_live(self, document_id: str) -> bool:
+        """
+        Check if a document has an active live connection.
+        
+        Args:
+            document_id: ID of the document to check
+            
+        Returns:
+            True if document is live, False otherwise
+        """
+        handle = self.get_document(document_id)
+        return handle.is_live if handle else False
+        
+    async def send_live_request(self, document_id: str, command: str, **kwargs) -> dict:
+        """
+        Send a request to the live Word Add-in via WebSocket.
+        
+        Args:
+            document_id: ID of the document
+            command: Command to send to Add-in
+            **kwargs: Additional parameters for the command
+            
+        Returns:
+            Response data from Add-in
+            
+        Raises:
+            ConnectionError: If no live session found
+            TimeoutError: If request times out
+        """
+        handle = self.get_document(document_id)
+        if not handle or not handle.is_live:
+            raise ConnectionError(f"No live session found for document: {document_id}")
+        
+        correlation_id = str(uuid.uuid4())
+        future = asyncio.get_running_loop().create_future()
+        handle.pending_requests[correlation_id] = future
+        
+        request_message = {
+            "command": command,
+            "correlation_id": correlation_id,
+            **kwargs
+        }
+        
+        try:
+            print(f"[DocumentSessionManager] Sending command '{command}' to Add-in for document '{document_id}'")
+            # WebSocket send requires JSON string serialization
+            await handle.websocket_connection.send(json.dumps(request_message))
+            return await asyncio.wait_for(future, timeout=60.0)
+        except asyncio.TimeoutError:
+            handle.pending_requests.pop(correlation_id, None)
+            raise TimeoutError(f"Request to Add-in for command '{command}' timed out.")
+        except Exception as e:
+            handle.pending_requests.pop(correlation_id, None)
+            raise e
+        
+    def handle_live_response(self, websocket: object, correlation_id: str, data: dict):
+        """
+        Handle a response from the Word Add-in.
+        
+        Args:
+            websocket: WebSocket connection that sent the response
+            correlation_id: ID of the request being responded to
+            data: Response data from Add-in
+        """
+        document_id = self.find_document_by_websocket(websocket)
+        if not document_id:
+            print(f"[DocumentSessionManager] WARN: Received response from unknown websocket")
+            return
+        
+        handle = self.get_document(document_id)
+        if not handle:
+            return
+        
+        if correlation_id in handle.pending_requests:
+            future = handle.pending_requests.pop(correlation_id)
+            if data.get("status") == "success":
+                future.set_result(data.get("data"))
+            else:
+                future.set_exception(Exception(data.get("error", "Unknown error from Add-in")))
+        else:
+            print(f"[DocumentSessionManager] WARN: Received response for unknown correlation_id: {correlation_id}")
 
 # Global session manager instance
 _session_manager = DocumentSessionManager()

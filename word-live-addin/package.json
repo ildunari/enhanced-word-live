@@ -1,0 +1,25 @@
+{
+  "name": "word-live-connector",
+  "version": "1.0.0",
+  "description": "Word Add-in for live editing connection to Enhanced Word MCP Server",
+  "main": "src/taskpane/taskpane.js",
+  "scripts": {
+    "start": "office-addin-dev-certs install && office-addin-dev-certs verify && npx http-server -p 3000 -c-1 --cors",
+    "build": "echo 'No build process needed for this simple add-in'",
+    "validate": "office-addin-manifest validate manifest.xml"
+  },
+  "keywords": [
+    "office-add-in",
+    "word",
+    "mcp",
+    "live-editing"
+  ],
+  "author": "Kosta",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "office-addin-dev-certs": "^1.11.3",
+    "office-addin-manifest": "^1.12.3"
+  },
+  "dependencies": {}
+}

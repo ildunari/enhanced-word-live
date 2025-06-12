@@ -5,6 +5,10 @@ Acts as the central controller for the MCP server that handles Word document ope
 
 import os
 import sys
+import asyncio
+import json
+import threading
+import websockets
 from mcp.server.fastmcp import FastMCP
 from word_document_server.tools import (
     document_tools,
@@ -16,6 +20,7 @@ from word_document_server.tools import (
     section_tools,
     session_tools
 )
+from word_document_server.session_manager import get_session_manager
 
 
 
@@ -117,14 +122,108 @@ def register_tools():
 
 
 
+async def websocket_handler(websocket, path):
+    """
+    Handle incoming WebSocket connections from Word Add-ins.
+    
+    This function manages the communication between the Word Add-in and the 
+    document session manager for live editing capabilities.
+    """
+    print(f"[WebSocket] Client connected from {websocket.remote_address}")
+    session_manager = get_session_manager()
+    registered_document_id = None
+    
+    try:
+        async for message in websocket:
+            try:
+                data = json.loads(message)
+                msg_type = data.get("type")
+                
+                if msg_type == "register":
+                    # Word Add-in is registering for live editing
+                    file_path = data.get("path")
+                    if file_path:
+                        # Find the document by file path
+                        document_id = None
+                        for doc_id, handle in session_manager._documents.items():
+                            if handle.file_path == file_path:
+                                document_id = doc_id
+                                break
+                        
+                        if document_id:
+                            result = session_manager.register_live_connection(document_id, websocket)
+                            registered_document_id = document_id
+                            print(f"[WebSocket] {result}")
+                        else:
+                            print(f"[WebSocket] No session found for document path: {file_path}")
+                            # TODO: Could auto-create session here if needed
+                            
+                elif msg_type == "response":
+                    # Response from Word Add-in to a previous request
+                    correlation_id = data.get("correlation_id")
+                    if correlation_id:
+                        session_manager.handle_live_response(websocket, correlation_id, data)
+                    else:
+                        print(f"[WebSocket] Received response without correlation_id")
+                        
+                else:
+                    print(f"[WebSocket] Received unknown message type: {msg_type}")
+                    
+            except json.JSONDecodeError as e:
+                print(f"[WebSocket] Failed to parse JSON message: {e}")
+            except Exception as e:
+                print(f"[WebSocket] Error handling message: {e}")
+
+    except websockets.exceptions.ConnectionClosed:
+        # Normal disconnect
+        pass
+    except Exception as e:
+        print(f"[WebSocket] Connection error: {e}")
+    finally:
+        # Clean up the live connection when WebSocket disconnects
+        if registered_document_id:
+            session_manager.unregister_live_connection(registered_document_id)
+        print(f"[WebSocket] Client from {websocket.remote_address} disconnected")
+
+
+def run_websocket_server():
+    """
+    Start the WebSocket server for live document editing.
+    
+    This runs in a separate thread so it doesn't block the main MCP transport.
+    The WebSocket server listens on localhost:8765 for connections from Word Add-ins.
+    """
+    try:
+        # Create a new event loop for this thread
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        loop = asyncio.get_event_loop()
+        
+        # Start the WebSocket server
+        start_server = websockets.serve(websocket_handler, "localhost", 8765)
+        
+        print("[WebSocket] Starting WebSocket server on ws://localhost:8765")
+        loop.run_until_complete(start_server)
+        loop.run_forever()
+        
+    except Exception as e:
+        print(f"[WebSocket] Failed to start WebSocket server: {e}")
+
 def run_server():
-    """Run the Word Document MCP Server."""
+    """Run the Word Document MCP Server with live editing support."""
     # Register all tools
     register_tools()
     
-    # Run the server
+    # Start WebSocket server in a background thread for live editing
+    print("[Main] Starting Word Document MCP Server with live editing support...")
+    websocket_thread = threading.Thread(target=run_websocket_server, daemon=True)
+    websocket_thread.start()
+    print("[Main] WebSocket server started for live document editing")
+    
+    # Run the main MCP server
+    print("[Main] Starting MCP server...")
     mcp.run(transport='stdio')
     return mcp
+
 
 if __name__ == "__main__":
     run_server()

@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Word Live Connector</title>
+    <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+    <link href="taskpane.css" rel="stylesheet" type="text/css" />
+</head>
+<body class="ms-font-m ms-welcome ms-Fabric">
+    <header class="ms-welcome__header ms-bgColor-neutralLighter">
+        <h1 class="ms-font-su">Live Connector</h1>
+    </header>
+    <main id="app-body" class="ms-welcome__main">
+        <div class="status-container">
+            <div id="status-indicator" class="status-indicator-gray"></div>
+            <div id="status-text">DISCONNECTED</div>
+        </div>
+        <p class="ms-font-m">Automatically detects and connects to the local MCP server for live AI editing.</p>
+        <button id="connect-button" class="ms-Button">
+            <span class="ms-Button-label">Connect</span>
+        </button>
+        <div id="help-text" class="help-text">
+            <p>💡 <strong>Auto-Connect:</strong> The Add-in automatically searches for the MCP server every 2 seconds.</p>
+            <p>📋 <strong>Setup:</strong> Run <code>start-live-editing.sh</code> to start both servers automatically.</p>
+        </div>
+    </main>
+    <script src="taskpane.js"></script>
+</body>
+</html>

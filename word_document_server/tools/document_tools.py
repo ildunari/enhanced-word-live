@@ -192,6 +192,8 @@ async def get_text(
         - Consider using max_results to limit search output for performance
     """
     from word_document_server.utils.session_utils import resolve_document_path
+    from word_document_server.session_manager import get_session_manager
+    import io
     
     # Resolve document path from document_id or filename
     filename, error_msg = resolve_document_path(document_id, filename)
@@ -243,8 +245,33 @@ async def get_text(
         except (ValueError, TypeError):
             return "Invalid parameter: end_paragraph must be an integer"
     
-    if not os.path.exists(filename):
-        return f"Document {filename} does not exist"
+    # Get session manager to check for live connections
+    session_manager = get_session_manager()
+    
+    # --- LIVE EDITING LOGIC ---
+    if document_id and session_manager.is_document_live(document_id):
+        try:
+            # Get current content from live document
+            ooxml_response = await session_manager.send_live_request(document_id, "get_full_content")
+            ooxml_content = ooxml_response.get("content")
+            if not ooxml_content:
+                return "Failed to retrieve content from live document"
+            
+            # Create Document object from live content
+            doc = Document(io.BytesIO(ooxml_content.encode('utf-8')))
+            print(f"[get_text] Operating in LIVE mode for document '{document_id}'")
+            
+        except Exception as e:
+            return f"Failed to get live document content: {str(e)}"
+    
+    # --- FILE-BASED LOGIC (FALLBACK) ---
+    else:
+        if not os.path.exists(filename):
+            return f"Document {filename} does not exist"
+        
+        # Load document from file
+        doc = Document(filename)
+        print(f"[get_text] Operating in FILE mode for {filename}")
     
     def extract_run_formatting(run, detail_level="basic"):
         """Extract formatting information from a run."""
@@ -339,9 +366,13 @@ async def get_text(
         if scope == "all":
             # Original get_document_text functionality with optional formatting
             if not include_formatting:
-                return extract_document_text(filename)
+                # For live documents, we need to extract text from the already loaded doc
+                if document_id and session_manager.is_document_live(document_id):
+                    return "\n".join([p.text for p in doc.paragraphs])
+                else:
+                    return extract_document_text(filename)
             else:
-                doc = Document(filename)
+                # doc is already loaded above (either from live or file)
                 result = {
                     "document_text": "",
                     "paragraphs": [],
@@ -367,7 +398,7 @@ async def get_text(
         
         elif scope == "paragraph":
             # Original get_paragraph_text_from_document functionality with enhanced formatting
-            doc = Document(filename)
+            # doc is already loaded above (either from live or file)
             
             # Validate paragraph index
             if paragraph_index >= len(doc.paragraphs):
@@ -396,7 +427,57 @@ async def get_text(
         elif scope == "search":
             # Original find_text_in_document functionality with enhanced formatting
             if not include_formatting:
-                result = find_text(filename, search_term, match_case, whole_word)
+                # For live documents, we can't use find_text(filename, ...) so we'll process the doc directly
+                if document_id and session_manager.is_document_live(document_id):
+                    # Simple text search for live documents when formatting is not needed
+                    occurrences = []
+                    search_lower = search_term.lower() if not match_case else search_term
+                    
+                    for para_idx, paragraph in enumerate(doc.paragraphs):
+                        para_text = paragraph.text
+                        search_text = para_text.lower() if not match_case else para_text
+                        
+                        if whole_word:
+                            import re
+                            pattern = r'' + re.escape(search_lower) + r''
+                            matches = list(re.finditer(pattern, search_text, re.IGNORECASE if not match_case else 0))
+                        else:
+                            matches = []
+                            start = 0
+                            while True:
+                                pos = search_text.find(search_lower, start)
+                                if pos == -1:
+                                    break
+                                matches.append(type('Match', (), {'start': lambda: pos, 'end': lambda: pos + len(search_term)})())
+                                start = pos + 1
+                        
+                        for match in matches:
+                            if len(occurrences) >= max_results:
+                                break
+                            
+                            pos = match.start()
+                            end_pos = match.end()
+                            context_start = max(0, pos - 50)
+                            context_end = min(len(para_text), end_pos + 50)
+                            
+                            occurrences.append({
+                                "paragraph_index": para_idx,
+                                "character_position": pos,
+                                "matched_text": para_text[pos:end_pos],
+                                "context": para_text[context_start:context_end]
+                            })
+                        
+                        if len(occurrences) >= max_results:
+                            break
+                    
+                    result = {
+                        "query": search_term,
+                        "total_count": len(occurrences),
+                        "occurrences": occurrences,
+                        "source": "live_document"
+                    }
+                else:
+                    result = find_text(filename, search_term, match_case, whole_word)
                 # Limit results if max_results is specified
                 if "occurrences" in result and len(result["occurrences"]) > max_results:
                     result["occurrences"] = result["occurrences"][:max_results]
@@ -404,7 +485,7 @@ async def get_text(
                     result["truncated"] = True
                 return json.dumps(result, indent=2)
             else:
-                doc = Document(filename)
+                # doc is already loaded above (either from live or file)
                 occurrences = []
                 
                 search_lower = search_term.lower() if not match_case else search_term
@@ -482,7 +563,7 @@ async def get_text(
         
         elif scope == "range":
             # New functionality: extract paragraph range with optional formatting
-            doc = Document(filename)
+            # doc is already loaded above (either from live or file)
             
             # Validate range parameters
             if start_paragraph >= len(doc.paragraphs):
