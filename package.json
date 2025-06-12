@@ -1,10 +1,10 @@
 {
-  "name": "enhanced-word-mcp-server",
-  "version": "2.5.1",
-  "description": "Enhanced Word MCP server with 22 consolidated tools for comprehensive Word document operations. Features complete session management, unified tool interfaces, regex search, and advanced document collaboration.",
+  "name": "enhanced-word-mcp-server-live",
+  "version": "1.0.0",
+  "description": "Enhanced Word MCP server with live editing capabilities. Features real-time Word document collaboration via WebSocket, Office Add-in integration, and comprehensive document operations with regex positioning fixes.",
   "main": "index.js",
   "bin": {
-    "enhanced-word-mcp-server": "./bin/enhanced-word-mcp-server.js"
+    "enhanced-word-mcp-server-live": "./bin/enhanced-word-mcp-server.js"
   },
   "scripts": {
     "start": "python3 -m word_document_server.main",
@@ -25,7 +25,11 @@
     "review",
     "comments",
     "track-changes",
-    "section-management"
+    "section-management",
+    "live-editing",
+    "websocket",
+    "office-addin",
+    "real-time"
   ],
   "author": {
     "name": "Kosta Vučković",
@@ -40,19 +44,23 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/kosta/kosta-enhanced-word-mcp-server.git"
+    "url": "https://github.com/ildunari/enhanced-word-live.git"
   },
   "bugs": {
-    "url": "https://github.com/kosta/kosta-enhanced-word-mcp-server/issues"
+    "url": "https://github.com/ildunari/enhanced-word-live/issues"
   },
-  "homepage": "https://github.com/kosta/kosta-enhanced-word-mcp-server#readme",
+  "homepage": "https://github.com/ildunari/enhanced-word-live#readme",
   "engines": {
     "node": ">=16.0.0"
   },
   "files": [
     "word_document_server/",
+    "word-live-addin/",
     "requirements.txt",
     "README_ENHANCED.md",
+    "QUICK_START_GUIDE.md",
+    "start-live-editing.sh",
+    "start-live-editing.bat",
     "claude_desktop_config.json",
     "bin/",
     "index.js"
