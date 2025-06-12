@@ -1,6 +1,6 @@
 {
   "name": "enhanced-word-mcp-server-live",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Enhanced Word MCP server with live editing capabilities. Features real-time Word document collaboration via WebSocket, Office Add-in integration, and comprehensive document operations with regex positioning fixes.",
   "main": "index.js",
   "bin": {
